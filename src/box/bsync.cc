@@ -257,6 +257,9 @@ static struct bsync_state_ {
 	struct rlist submit_queue; // submitted operations
 	struct rlist commit_queue; // submitted operations
 
+	size_t active_ops;
+	struct rlist wait_queue;
+
 	struct bsync_fiber_cache txn_fibers;
 	struct bsync_fiber_cache bsync_fibers;
 
@@ -1710,6 +1713,17 @@ bsync_queue_leader(struct bsync_operation *oper, bool proxy)
 	say_debug("start to proceed request %d:%ld, sign is %ld",
 		oper->row->server_id, oper->row->lsn, oper->sign);
 	oper->rejected = oper->accepted = 0;
+	if (bsync_state.active_ops > (MAX_UNCOMMITED_ROWS - 10)) {
+		rlist_add_tail_entry(&bsync_state.wait_queue, oper, list);
+		fiber_yield();
+		if (oper->status == bsync_op_status_fail) {
+			oper->txn_data->result = -1;
+			bsync_free_region(oper->common);
+			SWITCH_TO_TXN(oper->txn_data, txn_process);
+			return;
+		}
+	}
+	++bsync_state.active_ops;
 	for (uint8_t host_id = 0; host_id < bsync_state.num_hosts; ++host_id) {
 		if (host_id == bsync_state.local_id ||
 			BSYNC_REMOTE.state < bsync_host_follow)
@@ -1756,6 +1770,13 @@ bsync_queue_leader(struct bsync_operation *oper, bool proxy)
 			break;
 		}
 		fiber_yield_timeout(bsync_state.operation_timeout);
+	}
+	--bsync_state.active_ops;
+	if (!rlist_empty(&bsync_state.wait_queue)) {
+		fiber_call(
+			rlist_shift_entry(&bsync_state.wait_queue,
+				bsync_operation, list)->owner
+		);
 	}
 	oper->txn_data->result = (
 		2 * oper->accepted > bsync_state.num_hosts ? 0 : -1);
@@ -2846,6 +2867,13 @@ bsync_check_consensus(uint8_t host_id)
 	bsync_state.state = bsync_state_initial;
 	BSYNC_REMOTE.sysmsg.proxy = true;
 	struct bsync_send_elem *elem = NULL;
+	struct bsync_operation *oper = NULL;
+	while (!rlist_empty(&bsync_state.wait_queue)) {
+		oper = rlist_shift_entry(&bsync_state.wait_queue,
+					 struct bsync_operation, list);
+		oper->status = bsync_op_status_fail;
+		fiber_call(oper->owner);
+	}
 	for (uint8_t i = 0; i < bsync_state.num_hosts; ++i) {
 		if (i == bsync_state.local_id)
 			continue;
@@ -3716,6 +3744,7 @@ bsync_init(struct recovery_state *r)
 	bsync_state.bsync_fibers.size = 0;
 	bsync_state.bsync_fibers.active = 0;
 	bsync_state.bsync_rollback = false;
+	bsync_state.active_ops = 0;
 	rlist_create(&bsync_state.txn_fibers.data);
 	rlist_create(&bsync_state.bsync_fibers.data);
 	rlist_create(&bsync_state.proxy_queue);
@@ -3723,6 +3752,7 @@ bsync_init(struct recovery_state *r)
 	rlist_create(&bsync_state.commit_queue);
 	rlist_create(&bsync_state.txn_queue);
 	rlist_create(&bsync_state.wal_queue);
+	rlist_create(&bsync_state.wait_queue);
 	rlist_create(&bsync_state.execute_queue);
 	rlist_create(&bsync_state.election_ops);
 	rlist_create(&bsync_state.region_free);
