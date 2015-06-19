@@ -282,7 +282,7 @@ recovery_commit_rows(struct recovery_state *r, uint64_t sign, bool panic)
 		struct xrow_header *row = &r->commit.queue[r->commit.begin];
 		try {
 			recovery_apply_row(r, row);
-			region_reset(&r->commit.queue_gc[r->commit.begin]);
+			region_free(&r->commit.queue_gc[r->commit.begin]);
 		} catch (ClientError *e) {
 			if (panic)
 				throw;
@@ -291,7 +291,7 @@ recovery_commit_rows(struct recovery_state *r, uint64_t sign, bool panic)
 			if (row->commit_sn) {
 				vclock_follow(&r->vclock, row->server_id, row->lsn);
 			}
-			region_reset(&r->commit.queue_gc[r->commit.begin]);
+			region_free(&r->commit.queue_gc[r->commit.begin]);
 		}
 		assert(r->commit.end != r->commit.begin);
 		if (++r->commit.begin == MAX_UNCOMMITED_ROWS)
@@ -302,7 +302,7 @@ recovery_commit_rows(struct recovery_state *r, uint64_t sign, bool panic)
 static void
 recovery_rollback_row(struct recovery_state *r)
 {
-	region_reset(&r->commit.queue_gc[r->commit.begin]);
+	region_free(&r->commit.queue_gc[r->commit.begin]);
 	if (++r->commit.begin == MAX_UNCOMMITED_ROWS)
 		r->commit.begin = 0;
 }
