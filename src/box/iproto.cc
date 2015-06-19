@@ -714,6 +714,8 @@ iproto_process(struct iproto_request *ireq)
 			 * the same way as for JOIN.
 			 */
 			box_process_subscribe(con->input.fd, &ireq->header);
+			ev_io_start(con->loop, &con->input);
+			ev_io_start(con->loop, &con->output);
 			break;
 		default:
 			tnt_raise(ClientError, ER_UNKNOWN_REQUEST_TYPE,

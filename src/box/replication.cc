@@ -236,10 +236,9 @@ replication_subscribe(struct recovery_state *lr, int fd,
 	try {
 		cord_cojoin(&cord);
 	} catch (...) {
-		bsync_recovery_fail(relay.r);
+		bsync_replication_fail(relay.r);
 		throw;
 	}
-	bsync_recovery_stop(relay.r);
 }
 
 void

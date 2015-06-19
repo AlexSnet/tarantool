@@ -133,6 +133,7 @@ replica_bootstrap_host(va_list ap)
 {
 	struct recovery_state *r = va_arg(ap, struct recovery_state *);
 	int rid = va_arg(ap, int);
+	int join = va_arg(ap, int);
 	fiber_set_name(fiber(), r->remote[rid].source);
 	struct xrow_header request;
 	struct iobuf *iobuf = iobuf_new(fiber_name(fiber()));
@@ -141,8 +142,9 @@ replica_bootstrap_host(va_list ap)
 	});
 restart:
 	coio_init(&r->remote[rid].out);
-	if (r->join) {
+	if (join) {
 		xrow_encode_join(&request, &r->server_uuid);
+		join = 0;
 	} else {
 		xrow_encode_subscribe(&request, &cluster_id,
 					&r->server_uuid, &r->vclock);
@@ -195,8 +197,9 @@ restart:
 }
 
 static void
-replica_bootstrap_cluster(struct recovery_state *r)
+replica_bootstrap_cluster(struct recovery_state *r, bool join)
 {
+	int j = (join ? 1 : 0);
 	for (int i = 0; i < r->remote_size; ++i) {
 		assert(!r->remote[i].connected);
 		if (r->remote[i].connecter) {
@@ -204,7 +207,7 @@ replica_bootstrap_cluster(struct recovery_state *r)
 		} else {
 			r->remote[i].connecter = fiber_new(r->remote[i].source,
 							replica_bootstrap_host);
-			fiber_start(r->remote[i].connecter, r, i);
+			fiber_start(r->remote[i].connecter, r, i, j);
 		}
 	}
 }
@@ -214,11 +217,10 @@ replica_bootstrap(struct recovery_state *r)
 {
 	say_info("bootstrapping a replica");
 	assert(recovery_has_remote(r));
-	r->join = true;
 	for (int i = 0; i < r->remote_size; ++i)
 		r->remote[i].reader = fiber();
 	/* Generate JOIN request */
-	replica_bootstrap_cluster(r);
+	replica_bootstrap_cluster(r, true);
 	struct remote *remote = NULL;
 	if (r->bsync_remote) {
 		remote = &r->remote[bsync_join()];
@@ -269,23 +271,17 @@ replica_bootstrap(struct recovery_state *r)
 }
 
 static struct remote *
-connect_to_remote(struct recovery_state *r, struct remote *remote, bool request)
+connect_to_remote(struct recovery_state *r, bool request)
 {
+	struct remote *remote = NULL;
 	if (r->bsync_remote) {
-		int rid = bsync_ready_subscribe();
-		if (rid >= 0) {
-			remote = &r->remote[rid];
-			if (remote->localhost)
-				return remote;
-			if (request) {
-				xrow_header request;
-				xrow_encode_subscribe(&request, &cluster_id,
-						      &r->server_uuid, &r->vclock);
-				remote_write_row(&remote->out, &request);
-			}
-		} else {
-			remote = &r->remote[bsync_subscribe()];
-			return remote;
+		remote = &r->remote[bsync_subscribe()];
+		if (request) {
+			xrow_header request;
+			xrow_encode_subscribe(&request, &cluster_id,
+						&r->server_uuid, &r->vclock);
+			remote_write_row(&remote->out, &request);
+			bsync_replica_stop();
 		}
 	} else {
 		if (remote->connecter)
@@ -303,8 +299,6 @@ pull_from_remote(va_list ap)
 	char name[FIBER_NAME_MAX];
 	struct recovery_state *r = va_arg(ap, struct recovery_state *);
 	struct xrow_header row;
-	bool join = r->join;
-	r->join = false;
 	for (int i = 0; i < r->remote_size; ++i)
 		r->remote[i].reader = fiber();
 	struct remote *remote = NULL;
@@ -314,20 +308,19 @@ pull_from_remote(va_list ap)
 		for (int i = 0; i < r->remote_size; ++i) {
 			r->remote[i].reader = NULL;
 		}
-		if (remote) {
-			if (remote->localhost) {
-				say_info("dont need recovery, switch to normal mode");
-			} else if (!r->bsync_remote) {
-				remote->connected = false;
-				evio_close(loop(), &remote->out);
-				say_info("replication from %s stopped",
-					remote->source);
-			} else {
-				say_info("recovery from %s stopped, switch to normal mode",
-					remote->source);
-				ev_io_stop(loop(), &remote->out);
-			}
-			bsync_recovery_stop(NULL);
+		if (!remote)
+			return;
+		if (remote->localhost) {
+			say_info("dont need recovery, switch to normal mode");
+		} else if (!r->bsync_remote) {
+			remote->connected = false;
+			evio_close(loop(), &remote->out);
+			say_info("replication from %s stopped",
+				remote->source);
+		} else {
+			say_info("recovery from %s stopped, switch to normal mode",
+				remote->source);
+			connect_to_remote(r, true);
 		}
 	});
 	ev_loop *loop = loop();
@@ -335,7 +328,7 @@ pull_from_remote(va_list ap)
 		remote = &r->remote[0];
 	}
 	if (!r->remote[0].connecter) {
-		replica_bootstrap_cluster(r);
+		replica_bootstrap_cluster(r, false);
 		if (r->bsync_remote) {
 			remote = &r->remote[bsync_subscribe()];
 			if (remote->localhost)
@@ -343,16 +336,24 @@ pull_from_remote(va_list ap)
 		} else {
 			fiber_yield();
 		}
+	} else if (r->bsync_remote) {
+		static bool not_called = true;
+		if (not_called)
+			say_info("start to recovery after JOIN");
+		else
+			say_info("start to recovery after BSYNC_SWITCH");
+		bool tmp = not_called;
+		not_called = false;
+		remote = connect_to_remote(r, tmp);
 	}
 	while (true) {
 		const char *err = NULL;
 		try {
 			if (! remote || ! evio_is_active(&remote->out)) {
 				err = "can't connect to cluster";
-				remote = connect_to_remote(r, remote, join);
+				remote = connect_to_remote(r, false);
 				if (remote->localhost)
 					return;
-				join = false;
 				const char *uri = uri_format(&remote->uri);
 				say_crit("starting replication from %s", uri);
 				snprintf(name, sizeof(name), "replica/%s", uri);

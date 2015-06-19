@@ -166,7 +166,6 @@ recovery_new(const char *snap_dirname, const char *wal_dirname,
 	auto guard = make_scoped_guard([=]{
 		free(r);
 	});
-	r->join = false;
 	r->commit.begin = r->commit.end = 0;
 	memset(r->commit.queue_gc_init, 0, sizeof(r->commit.queue_gc_init));
 	recovery_update_mode(r, WAL_NONE);

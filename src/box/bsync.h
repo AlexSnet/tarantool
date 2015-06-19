@@ -56,8 +56,7 @@ int bsync_join();
  * Return id of server who will send xlogs
  */
 int bsync_subscribe();
-
-int bsync_ready_subscribe();
+void bsync_replica_stop();
 
 bool bsync_process_join(int fd, struct tt_uuid *uuid);
 
@@ -66,9 +65,7 @@ bool bsync_process_subscribe(int fd, struct tt_uuid *uuid,
 
 bool bsync_follow(struct recovery_state *r);
 
-void bsync_recovery_stop(struct recovery_state *r);
-
-void bsync_recovery_fail(struct recovery_state *r);
+void bsync_replication_fail(struct recovery_state *r);
 
 void bsync_replica_fail();
 

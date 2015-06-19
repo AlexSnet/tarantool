@@ -141,7 +141,6 @@ struct recovery_state {
 	 * locally or send to the replica.
 	 */
 	struct fiber *watcher;
-	bool join;
 	struct remote remote[VCLOCK_MAX];
 	bool bsync_remote;
 	size_t remote_size;
