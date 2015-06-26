@@ -30,6 +30,7 @@
  */
 #include "index.h"
 
+struct request;
 struct space;
 struct tuple;
 class Relay;
@@ -272,7 +273,10 @@ public:
 	 * primary key.
 	 */
 	engine_replace_f replace;
-
+	virtual void executeUpdate(struct txn*, struct space*,
+	                           struct request*, struct port*);
+	virtual void executeDelete(struct txn*, struct space*,
+	                           struct request*, struct port*);
 	Engine *engine;
 };
 

@@ -36,6 +36,7 @@
 #include "memtx_rtree.h"
 #include "memtx_bitset.h"
 #include "space.h"
+#include "msgpuck/msgpuck.h"
 #include "salad/rlist.h"
 #include "request.h"
 #include <stdlib.h>
@@ -46,6 +47,7 @@
 #include "xrow.h"
 #include "recovery.h"
 #include "schema.h"
+#include "port.h"
 #include "main.h"
 #include "coeio_file.h"
 #include "coio.h"
@@ -85,8 +87,78 @@ struct MemtxSpace: public Handler {
 		/* do nothing */
 		/* engine->close(this); */
 	}
+	virtual void executeUpdate(struct txn*, struct space *space,
+	                           struct request *request, struct port *port);
+	virtual void executeDelete(struct txn*, struct space *space,
+	                           struct request *request, struct port *port);
 };
 
+void
+MemtxSpace::executeUpdate(struct txn *txn, struct space *space,
+                          struct request *request,
+                          struct port *port)
+{
+	Index *pk = index_find(space, 0);
+	const char *keyp = request->key;
+	uint32_t part_count = mp_decode_array(&keyp);
+	primary_key_validate(pk->key_def, keyp, part_count);
+
+	struct tuple *old_tuple = pk->findByKey(keyp, part_count);
+	if (old_tuple == NULL) {
+		txn_commit_stmt(txn);
+		return;
+	}
+	TupleGuard old_guard(old_tuple);
+
+	/* Update the tuple. */
+	struct tuple *new_tuple = tuple_update(space->format,
+					       region_alloc_cb,
+					       &fiber()->gc,
+					       old_tuple, request->tuple,
+					       request->tuple_end,
+					       request->index_base);
+	TupleGuard guard(new_tuple);
+	space_validate_tuple(space, new_tuple);
+	if (! engine_auto_check_update(space->handler->engine->flags))
+		space_check_update(space, old_tuple, new_tuple);
+
+	space->handler->replace(txn, space, old_tuple, new_tuple,
+	                        DUP_REPLACE);
+
+	txn_commit_stmt(txn);
+	/*
+	 * Adding result to port must be after possible WAL write.
+	 * The reason is that any yield between port_add_tuple and port_eof
+	 * calls could lead to sending not finished response to iproto socket.
+	 */
+	port_add_tuple(port, new_tuple);
+}
+
+void
+MemtxSpace::executeDelete(struct txn *txn, struct space *space,
+                          struct request *request,
+                          struct port *port)
+{
+	/* Try to find tuple by primary key */
+	Index *pk = index_find(space, 0);
+	const char *keyp = request->key;
+	uint32_t part_count = mp_decode_array(&keyp);
+	primary_key_validate(pk->key_def, keyp, part_count);
+	struct tuple *old_tuple = pk->findByKey(keyp, part_count);
+	if (old_tuple == NULL) {
+		txn_commit_stmt(txn);
+		return;
+	}
+	TupleGuard old_guard(old_tuple);
+	space->handler->replace(txn, space, old_tuple, NULL, DUP_REPLACE_OR_INSERT);
+	txn_commit_stmt(txn);
+	/*
+	 * Adding result to port must be after possible WAL write.
+	 * The reason is that any yield between port_add_tuple and port_eof
+	 * calls could lead to sending not finished response to iproto socket.
+	 */
+	port_add_tuple(port, old_tuple);
+}
 
 static void
 txn_on_yield_or_stop(struct trigger * /* trigger */, void * /* event */)
@@ -474,7 +546,6 @@ MemtxEngine::prepare(struct txn *txn)
 	trigger_clear(&txn->fiber_on_yield);
 	trigger_clear(&txn->fiber_on_stop);
 }
-
 
 void
 MemtxEngine::beginStatement(struct txn *txn)

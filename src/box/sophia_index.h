@@ -46,7 +46,9 @@ public:
 				  enum iterator_type type,
 				  const char *key, uint32_t part_count) const;
 	virtual size_t bsize() const;
-
+	void update(const char *key, uint32_t part_count,
+	            const char *expr,
+	            const char *expr_end);
 	void *env;
 	void *db;
 };

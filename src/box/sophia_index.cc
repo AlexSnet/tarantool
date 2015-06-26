@@ -29,6 +29,7 @@
 #include "sophia_index.h"
 #include "say.h"
 #include "tuple.h"
+#include "tuple_update.h"
 #include "scoped_guard.h"
 #include "errinj.h"
 #include "schema.h"
@@ -201,6 +202,9 @@ sophia_read(void *env, void *db, void *tx, const char *key,
 	return (struct tuple *)sophia_tuple(result, key_def, format, NULL);
 }
 
+static int
+sophia_update(char*, int, char*, int, void*, void**, int*);
+
 static inline void*
 sophia_configure(struct space *space, struct key_def *key_def)
 {
@@ -236,6 +240,13 @@ sophia_configure(struct space *space, struct key_def *key_def)
 		sp_set(c, name, type);
 		i++;
 	}
+	char callback[64];
+	snprintf(callback, sizeof(callback), "pointer: %p", (void*)sophia_update);
+	char callback_arg[64];
+	snprintf(callback_arg, sizeof(callback_arg), "pointer: %p", (void*)key_def);
+	snprintf(name, sizeof(name), "db.%" PRIu32 ".index.update",
+	         key_def->space_id);
+	sp_set(c, name, callback, callback_arg);
 	snprintf(name, sizeof(name), "db.%" PRIu32 ".compression", key_def->space_id);
 	sp_set(c, name, cfg_gets("sophia.compression"));
 	snprintf(name, sizeof(name), "db.%" PRIu32 ".compression_key", key_def->space_id);
@@ -356,7 +367,7 @@ SophiaIndex::replace(struct tuple *old_tuple, struct tuple *new_tuple,
 	/* delete */
 	if (old_tuple && new_tuple == NULL) {
 		sophia_write(env, db, tx, SOPHIA_DELETE, key_def, old_tuple);
-		return old_tuple;
+		return NULL;
 	}
 
 	/* update */
@@ -392,6 +403,175 @@ SophiaIndex::replace(struct tuple *old_tuple, struct tuple *new_tuple,
 		break;
 	}
 	return NULL;
+}
+
+static void *
+sophia_update_alloc(void *, size_t size)
+{
+	return malloc(size);
+}
+
+struct sophiaref {
+	uint32_t offset;
+	uint16_t size;
+} __attribute__((packed));
+
+static inline char*
+sophia_update_src(char *src, int srcsize, struct key_def *key_def,
+                  int *keysize_src, int *keysize_mp,
+                  int *size)
+{
+	struct sophiaref *ref = (struct sophiaref*)src;
+	*keysize_src = 0;
+	*keysize_mp = 0;
+
+	/* calculate src msgpack size */
+	int i = 0;
+	while (i < key_def->part_count) {
+		char *ptr;
+		if (key_def->parts[i].type == STRING) {
+			*keysize_mp += mp_sizeof_str(ref[i].size);
+		} else {
+			ptr = src + ref[i].offset;
+			*keysize_mp += mp_sizeof_uint(*(uint64_t*)ptr);
+		}
+		*keysize_src += sizeof(struct sophiaref) + ref[i].size;
+		i++;
+	}
+
+	/* convert src to msgpack */
+	int valueoffset =
+		ref[key_def->part_count-1].offset +
+		ref[key_def->part_count-1].size;
+	int valuesize = srcsize - valueoffset;
+
+	int count = key_def->part_count;
+	const char *p = src + valueoffset;
+	while (p < (src + srcsize)) {
+		count++;
+		mp_next((const char**)&p);
+	}
+
+	int srcmp_size = mp_sizeof_array(count) +
+		*keysize_mp + valuesize;
+
+	char *srcmp = (char*)malloc(srcmp_size);
+	char *srcmp_ptr = srcmp;
+	if (srcmp == NULL)
+		return NULL;
+
+	srcmp_ptr = mp_encode_array(srcmp_ptr, count);
+	i = 0;
+	while (i < key_def->part_count) {
+		char *ptr = src + ref[i].offset;
+		if (key_def->parts[i].type == STRING) {
+			srcmp_ptr = mp_encode_str(srcmp_ptr, ptr, ref[i].size);
+		} else {
+			srcmp_ptr = mp_encode_uint(srcmp_ptr, *(uint64_t*)ptr);
+		}
+		i++;
+	}
+	memcpy(srcmp_ptr, src + valueoffset, valuesize);
+	srcmp_ptr += valuesize;
+	assert((srcmp_ptr - srcmp) == srcmp_size);
+
+	*size = srcmp_size;
+	return srcmp;
+}
+
+static inline char*
+sophia_update_do(char *srcmp, int srcmp_size, char *update, int updatesize,
+                 int keysize_src, uint32_t *size)
+{
+	char *expr = update + keysize_src;
+	char *expr_end = update + updatesize;
+	const char *up;
+	try {
+		up = tuple_update_execute(sophia_update_alloc, NULL,
+		                          expr,
+		                          expr_end,
+		                          srcmp,
+		                          srcmp + srcmp_size,
+		                          size, 1);
+	} catch (...) {
+		return NULL;
+	}
+	return (char*)up;
+}
+
+static inline char*
+sophia_update_dest(char *up, int upsize, char *src, struct key_def *key_def,
+                   int keysize_src,
+                   int *size)
+{
+	const char *p = up;
+	int i = 0;
+	mp_decode_array(&p);
+	while (i < key_def->part_count) {
+		mp_next(&p);
+		i++;
+	}
+	const char *upvalue = p;
+	uint32_t upsize_value = upsize - (p - up);
+	*size = keysize_src + upsize_value;
+	char *dest = (char*)malloc(*size);
+	if (dest == NULL)
+		return NULL;
+	p = dest;
+	memcpy((void*)p, (void*)src, keysize_src);
+	p += keysize_src;
+	memcpy((void*)p, (void*)upvalue, upsize_value);
+	p += upsize_value;
+	assert((p - dest) == *size);
+	return dest;
+}
+
+static int
+sophia_update(char *src, int srcsize, char *update, int updatesize,
+              void *arg,
+              void **result, int *size)
+{
+	struct key_def *key_def = (struct key_def*)arg;
+
+	/* convert origin object to msgpack */
+	int keysize_src;
+	int keysize_mp;
+
+	int srcmp_size = 0;
+	char *srcmp = sophia_update_src(src, srcsize, key_def,
+	                                &keysize_src,
+	                                &keysize_mp, &srcmp_size);
+	if (srcmp == NULL)
+		return -1;
+
+	/* execute update */
+	uint32_t upsize;
+	char *up = sophia_update_do(srcmp, srcmp_size, update,
+	                            updatesize, keysize_src, &upsize);
+	free(srcmp);
+	if (up == NULL)
+		return -1;
+
+	/* convert msgpack to sophia format */
+	*result = sophia_update_dest(up, upsize, src, key_def,
+	                             keysize_src, size);
+	free(up);
+	return (*result == NULL) ? -1 : 0;
+}
+
+void
+SophiaIndex::update(const char *key, uint32_t part_count,
+                    const char *expr,
+                    const char *expr_end)
+{
+	(void)part_count;
+	const char *key_end;
+	void *o = sophia_key(env, db, key_def, key, &key_end, 0);
+	sp_set(o, "value", expr, expr_end - expr);
+	void *tx = in_txn()->engine_tx;
+	int rc = sp_update(tx, o);
+	if (rc == -1)
+		sophia_raise(env);
 }
 
 struct sophia_iterator {

@@ -62,8 +62,7 @@ execute_replace(struct request *request, struct port *port)
 	TupleGuard guard(new_tuple);
 	space_validate_tuple(space, new_tuple);
 	enum dup_replace_mode mode = dup_replace_mode(request->type);
-
-	txn_replace(txn, space, NULL, new_tuple, mode);
+	space->handler->replace(txn, space, NULL, new_tuple, mode);
 	txn_commit_stmt(txn);
 	/*
 	 * Adding result to port must be after possible WAL write.
@@ -78,40 +77,8 @@ execute_update(struct request *request, struct port *port)
 {
 	struct space *space = space_cache_find(request->space_id);
 	struct txn *txn = txn_begin_stmt(request, space);
-
 	access_check_space(space, PRIV_W);
-	Index *pk = index_find(space, 0);
-	/* Try to find the tuple by primary key. */
-	const char *key = request->key;
-	uint32_t part_count = mp_decode_array(&key);
-	primary_key_validate(pk->key_def, key, part_count);
-	struct tuple *old_tuple = pk->findByKey(key, part_count);
-
-	if (old_tuple == NULL) {
-		txn_commit_stmt(txn);
-		return;
-	}
-	TupleGuard old_guard(old_tuple);
-
-	/* Update the tuple. */
-	struct tuple *new_tuple = tuple_update(space->format,
-					       region_alloc_cb,
-					       &fiber()->gc,
-					       old_tuple, request->tuple,
-					       request->tuple_end,
-					       request->index_base);
-	TupleGuard guard(new_tuple);
-	space_validate_tuple(space, new_tuple);
-	if (! engine_auto_check_update(space->handler->engine->flags))
-		space_check_update(space, old_tuple, new_tuple);
-	txn_replace(txn, space, old_tuple, new_tuple, DUP_REPLACE);
-	txn_commit_stmt(txn);
-	/*
-	 * Adding result to port must be after possible WAL write.
-	 * The reason is that any yield between port_add_tuple and port_eof
-	 * calls could lead to sending not finished response to iproto socket.
-	 */
-	port_add_tuple(port, new_tuple);
+	space->handler->executeUpdate(txn, space, request, port);
 }
 
 static void
@@ -119,28 +86,8 @@ execute_delete(struct request *request, struct port *port)
 {
 	struct space *space = space_cache_find(request->space_id);
 	struct txn *txn = txn_begin_stmt(request, space);
-
 	access_check_space(space, PRIV_W);
-
-	/* Try to find tuple by primary key */
-	Index *pk = index_find(space, 0);
-	const char *key = request->key;
-	uint32_t part_count = mp_decode_array(&key);
-	primary_key_validate(pk->key_def, key, part_count);
-	struct tuple *old_tuple = pk->findByKey(key, part_count);
-	if (old_tuple == NULL) {
-		txn_commit_stmt(txn);
-		return;
-	}
-	TupleGuard old_guard(old_tuple);
-	txn_replace(txn, space, old_tuple, NULL, DUP_REPLACE_OR_INSERT);
-	txn_commit_stmt(txn);
-	/*
-	 * Adding result to port must be after possible WAL write.
-	 * The reason is that any yield between port_add_tuple and port_eof
-	 * calls could lead to sending not finished response to iproto socket.
-	 */
-	port_add_tuple(port, old_tuple);
+	space->handler->executeDelete(txn, space, request, port);
 }
 
 static void

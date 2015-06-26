@@ -26,6 +26,7 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+#include "request.h"
 #include "engine.h"
 #include "space.h"
 #include "exception.h"
@@ -83,6 +84,20 @@ bool Engine::needToBuildSecondaryKey(struct space * /* space */)
 Handler::Handler(Engine *f)
 	:engine(f)
 {
+}
+
+void
+Handler::executeUpdate(struct txn*, struct space*, struct request*,
+                       struct port*)
+{
+	tnt_raise(ClientError, ER_UNSUPPORTED, "engine", "update()");
+}
+
+void
+Handler::executeDelete(struct txn*, struct space*, struct request*,
+                       struct port*)
+{
+	tnt_raise(ClientError, ER_UNSUPPORTED, "engine", "delete()");
 }
 
 /** Register engine instance. */

@@ -38,6 +38,7 @@
 #include "recovery.h"
 #include "space.h"
 #include "schema.h"
+#include "port.h"
 #include "request.h"
 #include "iproto_constants.h"
 #include "replication.h"
@@ -88,7 +89,52 @@ sophia_replace(struct txn * /* txn */, struct space *space,
 
 struct SophiaSpace: public Handler {
 	SophiaSpace(Engine*);
+	virtual void executeUpdate(struct txn*, struct space *space,
+	                           struct request *request, struct port *port);
+	virtual void executeDelete(struct txn*, struct space *space,
+	                           struct request *request, struct port *port);
 };
+
+void
+SophiaSpace::executeUpdate(struct txn *txn, struct space *space,
+                           struct request *request,
+                           struct port *port)
+{
+	Index *pk = index_find(space, 0);
+	const char *keyp = request->key;
+	uint32_t part_count = mp_decode_array(&keyp);
+	primary_key_validate(pk->key_def, keyp, part_count);
+	SophiaIndex *index = (SophiaIndex*)pk;
+	index->update(keyp, part_count, request->tuple, request->tuple_end);
+	txn_commit_stmt(txn);
+	(void)port;
+}
+
+void
+SophiaSpace::executeDelete(struct txn *txn, struct space *space,
+                           struct request *request,
+                           struct port *port)
+{
+	/* Try to find tuple by primary key */
+	Index *pk = index_find(space, 0);
+	const char *keyp = request->key;
+	uint32_t part_count = mp_decode_array(&keyp);
+	primary_key_validate(pk->key_def, keyp, part_count);
+	struct tuple *old_tuple = pk->findByKey(keyp, part_count);
+	if (old_tuple == NULL) {
+		txn_commit_stmt(txn);
+		return;
+	}
+	TupleGuard old_guard(old_tuple);
+	space->handler->replace(txn, space, old_tuple, NULL, DUP_REPLACE_OR_INSERT);
+	txn_commit_stmt(txn);
+	/*
+	 * Adding result to port must be after possible WAL write.
+	 * The reason is that any yield between port_add_tuple and port_eof
+	 * calls could lead to sending not finished response to iproto socket.
+	 */
+	port_add_tuple(port, old_tuple);
+}
 
 SophiaSpace::SophiaSpace(Engine *e)
 	:Handler(e)
