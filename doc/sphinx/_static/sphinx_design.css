@@ -449,3 +449,28 @@ div.b-cols_content_left .b-search-text {
 .b-documentation-tab div {
     height: 100%;
 }
+
+/*
+  Classes whose names start with "ccode" are a Tarantool extension,
+  see comment in conf.py file: Tarantool custom roles
+*/
+
+.ccode, .ccodeb, .ccodei, .ccodebi {
+    white-space: pre;
+    font-size: 14px;
+    font-family: monospace;
+}
+
+.ccodeb, .ccodebi {
+    font-weight: bold;
+}
+
+.ccodei, .ccodebi {
+    font-style: italic;
+}
+
+
+.leftaligned {
+    text-align: left
+}
+

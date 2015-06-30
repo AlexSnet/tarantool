@@ -2,7 +2,7 @@
 
 require('suite')
 
-if not file_exists('lock') then
+if not file_exists('./sophia/lock') then
 	sophia_rmdir()
 	sophia_mkdir()
 end
@@ -14,9 +14,9 @@ local sophia = {
 box.cfg {
     listen            = os.getenv("LISTEN"),
     slab_alloc_arena  = 0.1,
-    pid_file          = "tarantool.pid",
+--    pid_file          = "tarantool.pid",
     rows_per_wal      = 50,
-    sophia_dir        = "./sophia_test",
+    sophia_dir        = "./sophia/sophia_test",
     sophia            = sophia,
     custom_proc_title = "default"
 }

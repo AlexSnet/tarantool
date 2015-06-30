@@ -54,6 +54,32 @@ html_show_sphinx = False
 html_show_copyright = False
 html_use_smartypants = False
 
+# Tarantool custom roles
+# Tarantool has extended Sphinx so that there are four new roles:
+# :codenormal:`text`     displays text as monospace
+# :codebold:`text`       displays text as monospace bold
+# :codeitalic:`text`     displays text as monospace italic
+# :codebolditalic:`text` displays text as monospace italic bold
+# The effect on HTML output is defined in _static/sphinx_design.css
+# (which is the css file designated in _templates/layout.html).
+rst_prolog = """
+.. role:: codenormal
+   :class: ccode
+
+.. role:: codebold
+   :class: ccodeb
+
+.. role:: codeitalic
+   :class: ccodei
+
+.. role:: codebolditalic
+   :class: ccodebi
+   
+.. |nbsp| unicode:: 0xA0 
+
+"""
+
+
 rst_epilog = """
 .. |br| raw:: html
 
