@@ -43,11 +43,6 @@
 #include <stdio.h>
 #include <inttypes.h>
 
-enum sophia_op {
-	SOPHIA_SET,
-	SOPHIA_DELETE
-};
-
 static uint64_t num_parts[16];
 
 static inline void*
@@ -88,7 +83,9 @@ sophia_key(void *env, void *db, struct key_def *key_def,
 	return o;
 }
 
-void *sophia_tuple(void *o, struct key_def *key_def, struct tuple_format *format, uint32_t *bsize)
+void*
+sophia_tuple(void *o, struct key_def *key_def, struct tuple_format *format,
+             uint32_t *bsize)
 {
 	int valuesize = 0;
 	char *value = (char*)sp_get(o, "value", &valuesize);
@@ -161,7 +158,7 @@ void *sophia_tuple(void *o, struct key_def *key_def, struct tuple_format *format
 }
 
 static inline void
-sophia_write(void *env, void *db, void *tx, enum sophia_op op,
+sophia_write(void *env, void *db, void *tx,
              struct key_def *key_def,
              struct tuple *tuple)
 {
@@ -173,14 +170,7 @@ sophia_write(void *env, void *db, void *tx, enum sophia_op op,
 	if (valuesize > 0)
 		sp_set(o, "value", value, valuesize);
 	int rc;
-	switch (op) {
-	case SOPHIA_DELETE:
-		rc = sp_delete(tx, o);
-		break;
-	case SOPHIA_SET:
-		rc = sp_set(tx, o);
-		break;
-	}
+	rc = sp_set(tx, o);
 	if (rc == -1)
 		sophia_raise(env);
 }
@@ -346,12 +336,7 @@ SophiaIndex::replace(struct tuple *old_tuple, struct tuple *new_tuple,
 	assert(txn != NULL && txn->engine_tx != NULL);
 	void *tx = txn->engine_tx;
 
-	/* This method does not return old tuple for replace,
-	 * insert or update.
-	 *
-	 * Delete does return old tuple to be properly
-	 * scheduled for wal write.
-	 */
+	assert(old_tuple == NULL);
 
 	/* Switch from INSERT to REPLACE during recovery.
 	 *
@@ -364,20 +349,7 @@ SophiaIndex::replace(struct tuple *old_tuple, struct tuple *new_tuple,
 			mode = DUP_REPLACE_OR_INSERT;
 	}
 
-	/* delete */
-	if (old_tuple && new_tuple == NULL) {
-		sophia_write(env, db, tx, SOPHIA_DELETE, key_def, old_tuple);
-		return NULL;
-	}
-
-	/* update */
-	if (old_tuple && new_tuple) {
-		/* assume no primary key update is supported */
-		sophia_write(env, db, tx, SOPHIA_SET, key_def, new_tuple);
-		return NULL;
-	}
-
-	/* insert or replace */
+	/* insert or replace only */
 	switch (mode) {
 	case DUP_INSERT: {
 		const char *key = tuple_field(new_tuple, key_def->parts[0].fieldno);
@@ -395,7 +367,7 @@ SophiaIndex::replace(struct tuple *old_tuple, struct tuple *new_tuple,
 		}
 	}
 	case DUP_REPLACE_OR_INSERT:
-		sophia_write(env, db, tx, SOPHIA_SET, key_def, new_tuple);
+		sophia_write(env, db, tx, key_def, new_tuple);
 		break;
 	case DUP_REPLACE:
 	default:
@@ -570,6 +542,18 @@ SophiaIndex::update(const char *key, uint32_t part_count,
 	sp_set(o, "value", expr, expr_end - expr);
 	void *tx = in_txn()->engine_tx;
 	int rc = sp_update(tx, o);
+	if (rc == -1)
+		sophia_raise(env);
+}
+
+void
+SophiaIndex::del(const char *key, uint32_t part_count)
+{
+	(void)part_count;
+	const char *key_end;
+	void *o = sophia_key(env, db, key_def, key, &key_end, 0);
+	void *tx = in_txn()->engine_tx;
+	int rc = sp_delete(tx, o);
 	if (rc == -1)
 		sophia_raise(env);
 }

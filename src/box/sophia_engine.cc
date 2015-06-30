@@ -115,25 +115,14 @@ SophiaSpace::executeDelete(struct txn *txn, struct space *space,
                            struct request *request,
                            struct port *port)
 {
-	/* Try to find tuple by primary key */
 	Index *pk = index_find(space, 0);
 	const char *keyp = request->key;
 	uint32_t part_count = mp_decode_array(&keyp);
 	primary_key_validate(pk->key_def, keyp, part_count);
-	struct tuple *old_tuple = pk->findByKey(keyp, part_count);
-	if (old_tuple == NULL) {
-		txn_commit_stmt(txn);
-		return;
-	}
-	TupleGuard old_guard(old_tuple);
-	space->handler->replace(txn, space, old_tuple, NULL, DUP_REPLACE_OR_INSERT);
+	SophiaIndex *index = (SophiaIndex*)pk;
+	index->del(keyp, part_count);
 	txn_commit_stmt(txn);
-	/*
-	 * Adding result to port must be after possible WAL write.
-	 * The reason is that any yield between port_add_tuple and port_eof
-	 * calls could lead to sending not finished response to iproto socket.
-	 */
-	port_add_tuple(port, old_tuple);
+	(void)port;
 }
 
 SophiaSpace::SophiaSpace(Engine *e)
@@ -498,7 +487,7 @@ SophiaEngine::commit(struct txn *txn)
 void
 SophiaEngine::rollbackStatement(struct txn_stmt *)
 {
-	panic("not implemented");
+	say_info("SophiaEngine::rollbackStatement()");
 }
 
 void

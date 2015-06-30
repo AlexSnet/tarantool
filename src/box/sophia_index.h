@@ -49,6 +49,7 @@ public:
 	void update(const char *key, uint32_t part_count,
 	            const char *expr,
 	            const char *expr_end);
+	void del(const char *key, uint32_t part_count);
 	void *env;
 	void *db;
 };
