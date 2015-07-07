@@ -67,3 +67,4 @@ src/00000000000000000001.snap
 doc/sphinx/_build/*
 !doc/sphinx/_build/.gitignore
 doc/www/content/doc
+.DS_Store
