@@ -327,13 +327,13 @@ static void eio_destroy (eio_req *req);
 /* buffer size for various temporary buffers */
 #define EIO_BUFSIZE 65536
 
-#define dBUF          \
-  char *eio_buf = malloc (EIO_BUFSIZE);   \
-  errno = ENOMEM;       \
-  if (!eio_buf)         \
+#define dBUF					\
+  char *eio_buf = malloc (EIO_BUFSIZE);		\
+  errno = ENOMEM;				\
+  if (!eio_buf)					\
     return -1
 
-#define FUBd          \
+#define FUBd					\
   free (eio_buf)
 
 /*****************************************************************************/
@@ -1711,19 +1711,19 @@ eio__statvfsat (int dirfd, const char *path, struct statvfs *buf)
 
 /*****************************************************************************/
 
-#define ALLOC(len)        \
-  if (!req->ptr2)       \
-    {           \
-      X_LOCK (EIO_POOL->wrklock);   \
-      req->flags |= EIO_FLAG_PTR2_FREE;   \
-      X_UNLOCK (EIO_POOL->wrklock);   \
-      req->ptr2 = malloc (len);     \
-      if (!req->ptr2)       \
-        {         \
-          errno       = ENOMEM;     \
-          req->result = -1;     \
-          break;        \
-        }         \
+#define ALLOC(len)				\
+  if (!req->ptr2)				\
+    {						\
+      X_LOCK (EIO_POOL->wrklock);		\
+      req->flags |= EIO_FLAG_PTR2_FREE;		\
+      X_UNLOCK (EIO_POOL->wrklock);		\
+      req->ptr2 = malloc (len);			\
+      if (!req->ptr2)				\
+        {					\
+          errno       = ENOMEM;			\
+          req->result = -1;			\
+          break;				\
+        }					\
     }
 
 /*****************************************************************************/
@@ -1743,7 +1743,7 @@ eio_api_destroy (eio_req *req)
   free (req);
 }
 
-#define REQ(rtype)            \
+#define REQ(rtype)						\
   eio_req *req;                                                 \
                                                                 \
   req = (eio_req *)calloc (1, sizeof *req);                     \
@@ -1751,20 +1751,20 @@ eio_api_destroy (eio_req *req)
     return 0;                                                   \
                                                                 \
   req->type    = rtype;                                         \
-  req->pri     = pri;           \
-  req->finish  = cb;            \
-  req->data    = data;            \
+  req->pri     = pri;						\
+  req->finish  = cb;						\
+  req->data    = data;						\
   req->destroy = eio_api_destroy;
 
 #define SEND eio_submit (req); return req
 
-#define PATH              \
-  req->flags |= EIO_FLAG_PTR1_FREE;       \
-  req->ptr1 = strdup (path);          \
-  if (!req->ptr1)           \
-    {               \
-      eio_api_destroy (req);          \
-      return 0;             \
+#define PATH							\
+  req->flags |= EIO_FLAG_PTR1_FREE;				\
+  req->ptr1 = strdup (path);					\
+  if (!req->ptr1)						\
+    {								\
+      eio_api_destroy (req);					\
+      return 0;							\
     }
 
 #define SINGLEDOT(ptr) (0[(char *)(ptr)] == '.' && !1[(char *)(ptr)])
@@ -1956,7 +1956,7 @@ eio_execute (etp_worker *self, eio_req *req)
 
       case EIO_BUSY:
 #ifdef _WIN32
-  Sleep (req->nv1 * 1e3);
+	Sleep (req->nv1 * 1e3);
 #else
         {
           struct timeval tv;
@@ -2304,3 +2304,4 @@ eio_sendfile_sync (int ofd, int ifd, off_t offset, size_t count)
 {
   return eio__sendfile (ofd, ifd, offset, count);
 }
+

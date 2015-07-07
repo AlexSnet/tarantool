@@ -204,3 +204,4 @@ int main (void)
 }
 ]])],ac_cv_pipe2=yes,ac_cv_pipe2=no)])
 test $ac_cv_pipe2 = yes && AC_DEFINE(HAVE_PIPE2, 1, pipe2(2) is available)
+

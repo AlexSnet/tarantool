@@ -635,3 +635,4 @@ etp_set_max_parallel (etp_pool pool, unsigned int nthreads)
   while (pool->started > pool->wanted)
     etp_end_thread (pool);
 }
+
