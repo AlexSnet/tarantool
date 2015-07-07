@@ -37,9 +37,9 @@
  * either the BSD or the GPL.
  */
 
-#ifndef _WIN32
-# include "config.h"
-#endif
+// #ifndef _WIN32
+// # include "config.h"
+// #endif
 
 #include "eio.h"
 #include "ecb.h"
