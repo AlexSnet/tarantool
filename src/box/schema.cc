@@ -200,7 +200,7 @@ schema_find_id(uint32_t system_space_id, uint32_t index_id,
 	struct space *space = space_cache_find(system_space_id);
 	Index *index = index_find(space, index_id);
 	struct iterator *it = index->position();
-	char key[5 /* str len */ + BOX_NAME_MAX];
+	char key[5 + len];
 	mp_encode_str(key, name, len);
 	index->initIterator(it, ITER_EQ, key, 1);
 	IteratorGuard it_guard(it);
