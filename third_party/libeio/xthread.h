@@ -47,7 +47,7 @@ typedef pthread_mutex_t xmutex_t;
 
 typedef pthread_cond_t xcond_t;
 #define X_COND_INIT                     PTHREAD_COND_INITIALIZER
-#define X_COND_CREATE(cond)		pthread_cond_init (&(cond), 0)
+#define X_COND_CREATE(cond)   pthread_cond_init (&(cond), 0)
 #define X_COND_SIGNAL(cond)             pthread_cond_signal (&(cond))
 #define X_COND_WAIT(cond,mutex)         pthread_cond_wait (&(cond), &(mutex))
 #define X_COND_TIMEDWAIT(cond,mutex,to) pthread_cond_timedwait (&(cond), &(mutex), &(to))
@@ -102,27 +102,27 @@ xthread_create (xthread_t *tid, void *(*proc)(void *), void *arg)
 
 typedef pthread_mutex_t xmutex_t;
 #if __linux && defined (PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP)
-# define X_MUTEX_INIT		PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
-# define X_MUTEX_CREATE(mutex)						\
-  do {									\
-    pthread_mutexattr_t attr;						\
-    pthread_mutexattr_init (&attr);					\
-    pthread_mutexattr_settype (&attr, PTHREAD_MUTEX_ADAPTIVE_NP);	\
-    pthread_mutex_init (&(mutex), &attr);				\
+# define X_MUTEX_INIT   PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
+# define X_MUTEX_CREATE(mutex)            \
+  do {                  \
+    pthread_mutexattr_t attr;           \
+    pthread_mutexattr_init (&attr);         \
+    pthread_mutexattr_settype (&attr, PTHREAD_MUTEX_ADAPTIVE_NP); \
+    pthread_mutex_init (&(mutex), &attr);       \
   } while (0)
 #else
-# define X_MUTEX_INIT		PTHREAD_MUTEX_INITIALIZER
-# define X_MUTEX_CREATE(mutex)	pthread_mutex_init (&(mutex), 0)
+# define X_MUTEX_INIT   PTHREAD_MUTEX_INITIALIZER
+# define X_MUTEX_CREATE(mutex)  pthread_mutex_init (&(mutex), 0)
 #endif
-#define X_LOCK(mutex)		pthread_mutex_lock   (&(mutex))
-#define X_UNLOCK(mutex)		pthread_mutex_unlock (&(mutex))
+#define X_LOCK(mutex)   pthread_mutex_lock   (&(mutex))
+#define X_UNLOCK(mutex)   pthread_mutex_unlock (&(mutex))
 
 typedef pthread_cond_t xcond_t;
-#define X_COND_INIT			PTHREAD_COND_INITIALIZER
-#define X_COND_CREATE(cond)		pthread_cond_init (&(cond), 0)
-#define X_COND_SIGNAL(cond)		pthread_cond_signal (&(cond))
-#define X_COND_WAIT(cond,mutex)		pthread_cond_wait (&(cond), &(mutex))
-#define X_COND_TIMEDWAIT(cond,mutex,to)	pthread_cond_timedwait (&(cond), &(mutex), &(to))
+#define X_COND_INIT     PTHREAD_COND_INITIALIZER
+#define X_COND_CREATE(cond)   pthread_cond_init (&(cond), 0)
+#define X_COND_SIGNAL(cond)   pthread_cond_signal (&(cond))
+#define X_COND_WAIT(cond,mutex)   pthread_cond_wait (&(cond), &(mutex))
+#define X_COND_TIMEDWAIT(cond,mutex,to) pthread_cond_timedwait (&(cond), &(mutex), &(to))
 
 typedef pthread_t xthread_t;
 #define X_THREAD_PROC(name) static void *name (void *thr_arg)
@@ -146,8 +146,7 @@ xthread_create (xthread_t *tid, void *(*proc)(void *), void *arg)
 
   pthread_attr_init (&attr);
   pthread_attr_setdetachstate (&attr, PTHREAD_CREATE_DETACHED);
-  if (X_STACKSIZE != 0)
-    pthread_attr_setstacksize (&attr, PTHREAD_STACK_MIN < X_STACKSIZE ?  X_STACKSIZE : PTHREAD_STACK_MIN);
+  pthread_attr_setstacksize (&attr, PTHREAD_STACK_MIN < X_STACKSIZE ? X_STACKSIZE : PTHREAD_STACK_MIN);
 #ifdef PTHREAD_SCOPE_PROCESS
   pthread_attr_setscope (&attr, PTHREAD_SCOPE_PROCESS);
 #endif
@@ -170,4 +169,3 @@ xthread_create (xthread_t *tid, void *(*proc)(void *), void *arg)
 #endif
 
 #endif
-

@@ -952,4 +952,3 @@ If you know of other additional requirements drop me a note.
 =head1 AUTHOR
 
 Marc Lehmann <libeio@schmorp.de>.
-
